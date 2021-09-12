@@ -2,7 +2,23 @@ import gf
 import os
 import binascii
 import re
+import glob
 from ctypes import cdll, c_char_p, create_string_buffer
+import argparse
+
+parser = argparse.ArgumentParser(description='New World Unpacker', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+add_arg = parser.add_argument
+
+add_arg('--assets', type=str, help='Path to assets folder')
+add_arg('--output', type=str, help='Path to output folder')
+
+args = parser.parse_args()
+
+direc = args.assets
+out_direc = args.output
+
+print(f'Asset dir: {direc}')
+print(f'Out dir: {out_direc}')
 
 
 class OodleDecompressor:
@@ -69,9 +85,13 @@ class EntryB:
 skipped = []
 def unpack():
     global skipped
-    paks = [x for x in os.listdir(direc) if '.pak' in x]
-    for pak in paks:
-        fbin = gf.get_hex_data(direc + pak)
+    file_list = glob.glob(f'{direc}**/*.pak', recursive=True)
+    # paks = [x for x in os.listdir(direc) if '.pak' in x]
+    # paks = [x for x in os.listdir(direc) if '.pak' in x]
+    print(file_list)
+    for pak in file_list:
+        # fbin = gf.get_hex_data(direc + pak)
+        fbin = gf.get_hex_data(pak)
         entriesB = []
 
         ret = [m.start() for m in re.finditer(b'\x50\x4B\x01\x02', fbin)]
@@ -95,40 +115,45 @@ def unpack():
             entriesB.append(entry)
 
         for entryb in entriesB:
-            ot = entryb.entrya_offset
-            entry = EntryA()
-            entry.pk = fbin[ot:ot+4]
-            entry.path_length = gf.get_int32(fbin, ot+0x1A)
-            entry.path = fbin[ot+0x1E:ot+(0x1E+entry.path_length)].decode('ansi')
-            if entryb.path != entry.path:
-                raise Exception('ERROR PATHS DIFFER')
-            else:
-                print('Path match', entry.path)
-            entry.data_offset = ot + (0x1E + entry.path_length)
-            entry.data_length_pre = gf.get_int32(fbin, ot + 0x12)
-
-            entry.data_length_post = gf.get_int32(fbin, ot + 0x16)
-            entry.data = fbin[entry.data_offset:entry.data_offset+entry.data_length_pre]
-            # Write
-            path = f'{out_direc}/{"/".join(entry.path.split("/")[:-1])}'
-            gf.mkdir(path)
-            with open(f'{out_direc}/{entry.path}', 'wb') as f:
-                decompressor = OodleDecompressor('/oo2core_8_win64.dll')
-                if entryb.bitflags == 0x8:
-                    entry.out_data = decompressor.decompress(entry.data, entry.data_length_post)
-                elif entryb.bitflags == 0x14:   # 0xA is entryA
-                    # No compression
-                    entry.out_data = entry.data
+            try:
+                ot = entryb.entrya_offset
+                entry = EntryA()
+                entry.pk = fbin[ot:ot+4]
+                entry.path_length = gf.get_int32(fbin, ot+0x1A)
+                entry.path = fbin[ot+0x1E:ot+(0x1E+entry.path_length)].decode('ansi')
+                if entryb.path != entry.path:
+                    raise Exception('ERROR PATHS DIFFER')
                 else:
-                    raise Exception(f'New bitflag {entry.bitflags}')
-                if not entry.out_data:
-                    raise Exception('DECOMP FAILED %%%%%%%%%%')
-                f.write(entry.out_data)
+                    print('Path match', entry.path)
+                entry.data_offset = ot + (0x1E + entry.path_length)
+                entry.data_length_pre = gf.get_int32(fbin, ot + 0x12)
+
+                entry.data_length_post = gf.get_int32(fbin, ot + 0x16)
+                entry.data = fbin[entry.data_offset:entry.data_offset+entry.data_length_pre]
+                # Write
+                path = f'{out_direc}/{"/".join(entry.path.split("/")[:-1])}'
+                gf.mkdir(path)
+                with open(f'{out_direc}/{entry.path}', 'wb') as f:
+                    decompressor = OodleDecompressor('/oo2core_8_win64.dll')
+                    if entryb.bitflags == 0x8:
+                        entry.out_data = decompressor.decompress(entry.data, entry.data_length_post)
+                    elif entryb.bitflags == 0x14:   # 0xA is entryA
+                        # No compression
+                        entry.out_data = entry.data
+                    else:
+                        raise Exception(f'New bitflag {entry.bitflags}')
+                    if not entry.out_data:
+                        raise Exception('DECOMP FAILED %%%%%%%%%%')
+                    f.write(entry.out_data)
+
+            except Exception as e:
+                print(e)
+
 
 
 if __name__ == '__main__':
-    direc = 'New World Alpha/assets/'
-    out_direc = 'unpacked_out/'
+    # direc = 'New World Alpha/assets/'
+    # out_direc = 'unpacked_out/'
     gf.mkdir(out_direc)
     unpack()
     input('Unpack done! Press any key to quit...')
